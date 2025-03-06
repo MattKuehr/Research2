@@ -1,15 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.optimize import root_scalar
 
 # -------------------------------
 # 1. Define parameters
 # -------------------------------
-# Layer A parameters
 epsilon_a = 4.0
 mu_a = 1.0
-d_a = 0.4  # normalized thickness (Lambda = d_a + d_b)
+d_a = 0.4  # normalized thickness
 
-# Layer B parameters
 epsilon_b = 1.0
 mu_b = 1.0
 d_b = 0.6
@@ -17,77 +16,92 @@ d_b = 0.6
 Lambda = d_a + d_b  # unit cell period (Lambda = 1)
 
 # Refractive index and impedance (assuming c = 1)
-# k_i = ω * sqrt(ε_i * μ_i)
 k_a = lambda omega: omega * np.sqrt(epsilon_a * mu_a)
 k_b = lambda omega: omega * np.sqrt(epsilon_b * mu_b)
-
-# Impedance: z_i = sqrt(mu_i/ε_i)
-z_a = np.sqrt(mu_a / epsilon_a)  # for layer A, = 0.5
-z_b = np.sqrt(mu_b / epsilon_b)  # for layer B, = 1.0
+z_a = np.sqrt(mu_a / epsilon_a)
+z_b = np.sqrt(mu_b / epsilon_b)
 
 # -------------------------------
 # 2. Define the dispersion function F(omega)
 # -------------------------------
-# The dispersion relation reads:
-# cos(q * Lambda) = cos(k_a*d_a)*cos(k_b*d_b) - 0.5*(z_a/z_b + z_b/z_a)*sin(k_a*d_a)*sin(k_b*d_b)
-# For our numbers, (z_a/z_b + z_b/z_a) = 0.5 + 2 = 2.5, and half of that is 1.25.
-F = lambda omega: (np.cos(k_a(omega)*d_a) * np.cos(k_b(omega)*d_b)
-                   - 0.5 * (z_a/z_b + z_b/z_a) * np.sin(k_a(omega)*d_a) * np.sin(k_b(omega)*d_b))
+# The dispersion relation is:
+# cos(q*Lambda) = cos(k_a*d_a)*cos(k_b*d_b) - 0.5*(z_a/z_b + z_b/z_a)*sin(k_a*d_a)*sin(k_b*d_b)
+F = lambda omega: (np.cos(k_a(omega) * d_a) * np.cos(k_b(omega) * d_b) -
+                   0.5 * (z_a / z_b + z_b / z_a) * np.sin(k_a(omega) * d_a) * np.sin(k_b(omega) * d_b))
 
 # -------------------------------
-# 3. Set frequency range and compute allowed q values
+# 3. Define function for fixed q
 # -------------------------------
-# The normalized frequency is ω_norm = (ω*Lambda)/(2π). We wish to see ω_norm from 0 to 3.
-# For Lambda = 1 and c = 1, this means ω from 0 to 6π ≈ 18.85.
+# For a fixed q, we want to solve F(omega) = cos(q*Lambda),
+# i.e., f(omega) = F(omega) - cos(q*Lambda) = 0.
+def f_for_q(omega, q):
+    return F(omega) - np.cos(q * Lambda)
+
+# -------------------------------
+# 4. Root finding for each q in [0, π]
+# -------------------------------
+# We define a set of q values (only positive branch) and search for ω roots.
+q_values = np.linspace(0, np.pi, 300)
 omega_max = 6 * np.pi
-omega_vals = np.linspace(0, omega_max, 20000)
+omega_coarse = np.linspace(0.001, omega_max, 1000)  # avoid omega = 0
 
-# We will collect the allowed (q, ω) points.
-q_plus = []   # positive branch (in radians)
-q_minus = []  # negative branch (mirror of positive branch)
-omega_allowed = []
-
-# For a real Bloch wave, |F(omega)| must be <= 1.
-for omega in omega_vals:
-    f_val = F(omega)
-    if np.abs(f_val) <= 1.0:
-        # Bloch wave vector q from the eigenvalue condition:
-        # 2*cos(q*Lambda) = e^(iqΛ) + e^(-iqΛ)
-        # We choose q in [0, π/Lambda], then also include the negative branch.
-        q_val = np.arccos(f_val)
-        q_plus.append(q_val)
-        q_minus.append(-q_val)
-        omega_allowed.append(omega)
-
-# Convert lists to numpy arrays
-q_plus = np.array(q_plus)
-q_minus = np.array(q_minus)
-omega_allowed = np.array(omega_allowed)
+band_data = {}
+for q in q_values:
+    f_vals = f_for_q(omega_coarse, q)
+    # Find intervals where the function changes sign
+    sign_change_indices = np.where(np.diff(np.sign(f_vals)))[0]
+    omega_solutions = []
+    for idx in sign_change_indices:
+        omega_left = omega_coarse[idx]
+        omega_right = omega_coarse[idx + 1]
+        try:
+            sol = root_scalar(f_for_q, args=(q,), bracket=[omega_left, omega_right], method='brentq')
+            if sol.converged:
+                omega_solutions.append(sol.root)
+        except Exception:
+            pass
+    band_data[q] = sorted(omega_solutions)
 
 # -------------------------------
-# 4. Normalize variables for plotting
+# 5. Collect and mirror data
 # -------------------------------
-# Normalized Bloch wave vector: q_norm = (q * Lambda) / (2π)
-# Since Lambda = 1, this is just q/(2π)
-q_plus_norm = q_plus / (2 * np.pi)
-q_minus_norm = q_minus / (2 * np.pi)
+q_list = []
+omega_list = []
+for q, omegas in band_data.items():
+    for omega in omegas:
+        q_list.append(q)
+        omega_list.append(omega)
 
-# Normalized frequency: omega_norm = (omega * Lambda)/(2π)
-omega_norm = omega_allowed / (2 * np.pi)
+# Convert to arrays for the positive branch.
+q_array = np.array(q_list)
+omega_array = np.array(omega_list)
+
+# Mirror the q values to create the negative branch.
+q_array_full = np.concatenate([q_array, -q_array])
+omega_array_full = np.concatenate([omega_array, omega_array])
 
 # -------------------------------
-# 5. Plot the band structure
+# 6. Normalize and sort data
+# -------------------------------
+# Normalize: q_norm = q/(2π), ω_norm = ω/(2π)
+q_norm = q_array_full / (2 * np.pi)
+omega_norm = omega_array_full / (2 * np.pi)
+
+# Sort by q_norm for a cleaner plot.
+sort_idx = np.argsort(q_norm)
+q_norm_sorted = q_norm[sort_idx]
+omega_norm_sorted = omega_norm[sort_idx]
+
+# -------------------------------
+# 7. Plot the band structure
 # -------------------------------
 plt.figure(figsize=(8, 6))
-plt.scatter(q_plus_norm, omega_norm, s=1, color='blue', label='q > 0')
-plt.scatter(q_minus_norm, omega_norm, s=1, color='blue', label='q < 0')
+plt.scatter(q_norm_sorted, omega_norm_sorted, s=10, color='blue', label='Band Structure (Root Finding)')
 plt.xlabel(r'Normalized Bloch Wave Vector $q\Lambda/(2\pi)$')
 plt.ylabel(r'Normalized Frequency $\omega\Lambda/(2\pi c)$')
-plt.title('Band Structure of 1D Photonic Crystal\n'
-          r'($\epsilon_a=4,\ d_a=0.4\Lambda;\ \epsilon_b=1,\ d_b=0.6\Lambda$)')
+plt.title('Band Structure of 1D Photonic Crystal\n(using Root Finding)')
 plt.xlim(-0.5, 0.5)
 plt.ylim(0, 3)
 plt.grid(True)
 plt.legend()
 plt.show()
-
