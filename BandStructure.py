@@ -2,60 +2,118 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import root_scalar
 
-# -------------------------------
-# 1. Define parameters
-# -------------------------------
-epsilon_a = 4.0
-mu_a = 1.0
-d_a = 0.4  # normalized thickness
+'''
+Figure 1 (b)
+Layer A: epsilon_a = 4, mu_a = 1, d_a = 0.4
+Layer B: epsilon_b = 1, mu_b = 1, d_b = 0.6
+Lambda = d_a + d_b = 1
 
-epsilon_b = 1.0
-mu_b = 1.0
-d_b = 0.6
+Figure 2 (b) (PC1)
+Layer A: epsilon_a = 3.8, mu_a = 1, d_a = 0.42
+Layer B: epislon_b = 1, mu_b = 1, d_b = 0.58
+Lamba = d_a + d_b = 1
 
-Lambda = d_a + d_b  # unit cell period (Lambda = 1)
+Figure 2 (c) (PC2)
+Layer A: epsilon_a = 4.2, mu_a = 1, d_a = 0.38
+Layer B: epsilon_b = 1, mu_b = 1, d_b = 0.62
+Lambda = d_a + d_b = 1
 
-# Refractive index and impedance (assuming c = 1)
-k_a = lambda omega: omega * np.sqrt(epsilon_a * mu_a)
-k_b = lambda omega: omega * np.sqrt(epsilon_b * mu_b)
-z_a = np.sqrt(mu_a / epsilon_a)
-z_b = np.sqrt(mu_b / epsilon_b)
+Figure 4 (b) (PC3)
+Layer A: epsilon_a = 1, mu_a = 1, d_a = 0.35
+Layer B: epsilon_b = 3.5, mu_b = 1, d_b = 0.65
+Lambda = d_a + d_b = 1
 
-# -------------------------------
-# 2. Define the dispersion function F(omega)
-# -------------------------------
-# The dispersion relation is:
-# cos(q*Lambda) = cos(k_a*d_a)*cos(k_b*d_b) - 0.5*(z_a/z_b + z_b/z_a)*sin(k_a*d_a)*sin(k_b*d_b)
-F = lambda omega: (np.cos(k_a(omega) * d_a) * np.cos(k_b(omega) * d_b) -
-                   0.5 * (z_a / z_b + z_b / z_a) * np.sin(k_a(omega) * d_a) * np.sin(k_b(omega) * d_b))
+Figure 4 (c) (PC4)
+Layer A: epsilon_a = 1, mu_a = 1, d_a = 0.6
+Layer B: epsilon_b = 1, mu_b = 6, d_b = 0.4
+Lambda = d_a + d_b = 1
+'''
 
-# -------------------------------
-# 3. Define function for fixed q
-# -------------------------------
-# For a fixed q, we want to solve F(omega) = cos(q*Lambda),
-# i.e., f(omega) = F(omega) - cos(q*Lambda) = 0.
-def f_for_q(omega, q):
-    return F(omega) - np.cos(q * Lambda)
 
 # -------------------------------
-# 4. Root finding for each q in [0, π]
+# User Inputs: Example with 3 layers and repeated unit cell
 # -------------------------------
-# We define a set of q values (only positive branch) and search for ω roots.
+n_layers = 2           # Number of unique layers in the unit cell
+n_repeats = 10         # Number of unit cells repeated (for finite crystal analysis)
+
+# Define parameters for the 3 layers:
+# Layer 1: epsilon=4.0, mu=1.0, thickness=0.3
+# Layer 2: epsilon=2.5, mu=1.0, thickness=0.4
+# Layer 3: epsilon=1.0, mu=1.0, thickness=0.3
+epsilons = [1.0, 1.0]
+mus = [1.0, 6.0]
+thicknesses = [0.6, 0.4]
+
+# Total unit cell thickness Λ
+Lambda = sum(thicknesses)
+
+# -------------------------------
+# Transfer Matrix for a Single Layer
+# -------------------------------
+def transfer_matrix_layer(omega, d, epsilon, mu):
+    """
+    Compute the 2x2 transfer matrix for a layer with thickness d,
+    relative permittivity epsilon, and relative permeability mu at frequency omega.
+    
+    For normal incidence:
+       M_layer = [[cos(k*d), (1j*sin(k*d))/Z],
+                  [1j*Z*sin(k*d), cos(k*d)]]
+    where k = omega * sqrt(epsilon*mu) and Z = sqrt(mu/epsilon).
+    """
+    k = omega * np.sqrt(epsilon * mu)
+    Z = np.sqrt(mu / epsilon)
+    cos_term = np.cos(k * d)
+    sin_term = np.sin(k * d)
+    M = np.array([[cos_term, 1j * sin_term / Z],
+                  [1j * Z * sin_term, cos_term]])
+    return M
+
+# -------------------------------
+# Compute the Unit Cell Transfer Matrix
+# -------------------------------
+def unit_cell_matrix(omega):
+    """
+    Multiply the transfer matrices of all layers in sequence
+    to obtain the overall transfer matrix for one unit cell.
+    """
+    M_total = np.eye(2, dtype=complex)
+    for d, eps, mu in zip(thicknesses, epsilons, mus):
+        M_total = np.dot(transfer_matrix_layer(omega, d, eps, mu), M_total)
+    return M_total
+
+# -------------------------------
+# Define the Dispersion Relation Function for a Given q
+# -------------------------------
+def dispersion_func(omega, q):
+    """
+    For a periodic photonic crystal, the dispersion relation is:
+       cos(q * Λ) = 1/2 * Trace(M_unit(omega))
+    Define f(omega; q) = 1/2 * Trace(M_unit(omega)) - cos(q*Λ) = 0,
+    and solve f(omega, q) = 0 for ω.
+    """
+    M = unit_cell_matrix(omega)
+    return 0.5 * np.trace(M).real - np.cos(q * Lambda)
+
+# -------------------------------
+# Root Finding: Solve for ω for Each q Value (Infinite Crystal)
+# -------------------------------
+# We choose q values for the positive branch from 0 to π.
 q_values = np.linspace(0, np.pi, 300)
-omega_max = 6 * np.pi
-omega_coarse = np.linspace(0.001, omega_max, 1000)  # avoid omega = 0
+omega_max = 6 * np.pi  # Maximum frequency for the search
+omega_coarse = np.linspace(0.001, omega_max, 1000)  # Coarse grid for bracketing
 
 band_data = {}
 for q in q_values:
-    f_vals = f_for_q(omega_coarse, q)
-    # Find intervals where the function changes sign
+    # Evaluate dispersion_func for each scalar omega using list comprehension.
+    f_vals = np.array([dispersion_func(omega, q) for omega in omega_coarse])
+    # Find intervals where the sign changes.
     sign_change_indices = np.where(np.diff(np.sign(f_vals)))[0]
     omega_solutions = []
     for idx in sign_change_indices:
         omega_left = omega_coarse[idx]
         omega_right = omega_coarse[idx + 1]
         try:
-            sol = root_scalar(f_for_q, args=(q,), bracket=[omega_left, omega_right], method='brentq')
+            sol = root_scalar(dispersion_func, args=(q,), bracket=[omega_left, omega_right], method='brentq')
             if sol.converged:
                 omega_solutions.append(sol.root)
         except Exception:
@@ -63,7 +121,7 @@ for q in q_values:
     band_data[q] = sorted(omega_solutions)
 
 # -------------------------------
-# 5. Collect and mirror data
+# Collect and Mirror Data for Both q Branches
 # -------------------------------
 q_list = []
 omega_list = []
@@ -72,36 +130,50 @@ for q, omegas in band_data.items():
         q_list.append(q)
         omega_list.append(omega)
 
-# Convert to arrays for the positive branch.
 q_array = np.array(q_list)
 omega_array = np.array(omega_list)
 
-# Mirror the q values to create the negative branch.
+# Mirror q values for the negative branch.
 q_array_full = np.concatenate([q_array, -q_array])
 omega_array_full = np.concatenate([omega_array, omega_array])
 
 # -------------------------------
-# 6. Normalize and sort data
+# Normalize and Sort Data for Plotting
 # -------------------------------
-# Normalize: q_norm = q/(2π), ω_norm = ω/(2π)
+# Normalization: q_norm = qΛ/(2π) and ω_norm = ω/(2π) (with c = 1)
 q_norm = q_array_full / (2 * np.pi)
 omega_norm = omega_array_full / (2 * np.pi)
 
-# Sort by q_norm for a cleaner plot.
 sort_idx = np.argsort(q_norm)
 q_norm_sorted = q_norm[sort_idx]
 omega_norm_sorted = omega_norm[sort_idx]
 
 # -------------------------------
-# 7. Plot the band structure
+# Plot the Band Structure for the Infinite Crystal
 # -------------------------------
 plt.figure(figsize=(8, 6))
-plt.scatter(q_norm_sorted, omega_norm_sorted, s=10, color='blue', label='Band Structure (Root Finding)')
-plt.xlabel(r'Normalized Bloch Wave Vector $q\Lambda/(2\pi)$')
-plt.ylabel(r'Normalized Frequency $\omega\Lambda/(2\pi c)$')
-plt.title('Band Structure of 1D Photonic Crystal\n(using Root Finding)')
+plt.scatter(q_norm_sorted, omega_norm_sorted, s=10, color='blue', label='Band Structure')
+plt.xlabel(r'Normalized Bloch Wave Vector $\frac{q\Lambda}{2\pi}$')
+plt.ylabel(r'Normalized Frequency $\frac{\omega\Lambda}{2\pi c}$')
+plt.title('Band Structure of a 3-Layer Photonic Crystal\n(Infinite Crystal)')
 plt.xlim(-0.5, 0.5)
 plt.ylim(0, 3)
 plt.grid(True)
 plt.legend()
 plt.show()
+
+# -------------------------------
+# Finite Crystal Analysis: Overall Transfer Matrix for n_repeats Unit Cells
+# -------------------------------
+def finite_crystal_matrix(omega, n_cells):
+    """
+    Compute the overall transfer matrix for a finite crystal
+    composed of n_cells repeated unit cells.
+    """
+    M_uc = unit_cell_matrix(omega)
+    return np.linalg.matrix_power(M_uc, n_cells)
+
+# Example: compute and display the finite crystal transfer matrix at an example frequency
+#omega_example = np.pi  # Arbitrary example frequency
+#M_finite = finite_crystal_matrix(omega_example, n_repeats)
+#print("Finite crystal transfer matrix at ω =", omega_example, ":\n", M_finite)
