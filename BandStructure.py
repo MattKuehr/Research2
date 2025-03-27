@@ -1,12 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import root_scalar
+import sympy as sp
 
 # -------------------------------
 # User Inputs (same as original)
 # -------------------------------
-n_layers = 2
-n_repeats = 10
 
 '''
 Figure 1 (b)
@@ -81,6 +80,45 @@ def dispersion_func_derivative(omega, q, h=1e-6):
     f_minus = dispersion_func(omega - h, q)
     return (f_plus - f_minus) / (2.0 * h)
 
+def dispersion_func_deriv_exact(omega, q):
+    """
+    Compute the derivative of the dispersion function with respect to omega exactly
+    using symbolic differentiation (via sympy).
+
+    The dispersion function is:
+        f(omega; q) = 0.5 * Trace(M_unit(omega)) - cos(q * Lambda)
+    where M_unit(omega) is the unit cell transfer matrix.
+    """
+    # Define symbolic variable
+    omega_sym = sp.symbols('omega', real=True)
+
+    # Build the symbolic unit cell matrix
+    M_total_sym = sp.eye(2)
+    for d, eps, mu in zip(thicknesses, epsilons, mus):
+        k_sym = omega_sym * sp.sqrt(eps * mu)
+        Z_sym = sp.sqrt(mu / eps)
+        cos_term = sp.cos(k_sym * d)
+        sin_term = sp.sin(k_sym * d)
+        # Define the layer transfer matrix symbolically
+        M_layer_sym = sp.Matrix([[cos_term, sp.I * sin_term / Z_sym],
+                                 [sp.I * Z_sym * sin_term, cos_term]])
+        M_total_sym = M_layer_sym * M_total_sym
+
+    # Compute the trace of the unit cell matrix
+    trace_M_sym = M_total_sym.trace()
+
+    # Define the symbolic dispersion function
+    f_sym = 0.5 * trace_M_sym - sp.cos(q * Lambda)
+
+    # Differentiate with respect to omega
+    df_domega_sym = sp.diff(f_sym, omega_sym)
+
+    # Evaluate the derivative at the provided omega value
+    df_domega_val = df_domega_sym.subs(omega_sym, omega)
+    
+    # Return the numerical value of the derivative
+    return float(sp.N(df_domega_val))
+
 # -------------------------------
 # Root Finding via Newton's Method
 # -------------------------------
@@ -111,7 +149,7 @@ for q in q_values:
         try:
             sol = root_scalar(
                 dispersion_func,
-                fprime=dispersion_func_derivative,
+                fprime=dispersion_func_derivative, # was dispersion_func_derivative
                 x0=omega_guess,
                 args=(q,),
                 method='newton'
