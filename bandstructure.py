@@ -1,157 +1,100 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# --- Simulation Parameters ---
-# These values are taken directly from Example 3 in the paper for the Hermitian case.
+# --- Simulation Parameters (match MATLAB exactly) ---
 DELTA = 6.0
-PHI1 = 0.0
-PHI2 = 0.8
+PHI1  = 0.0
+PHI2  = 0.8
 ALPHA = 0.5
-BETA = 0.5
-EPSILON0 = 13.0
-EPSILON0_TILDE = 1.0
-L = (2*np.pi) / 4  # Thickness of the 'A' layers
+BETA  = 0.5
+EPSILON0         = 13.0          # set to 13.0+5.0j for the NH case
+EPSILON0_TILDE   = 1.0
 
-# Simulation control
-OMEGA_MAX = 0.6 # was 0.6
+# Unit-cell lengths: L_total = 2π,  A1 = A2 = L_total/4 = π/2,  F = L_total/2 = π
+L_TOTAL = 2*np.pi
+L_A     = L_TOTAL/4.0            # = π/2
+L_F     = L_TOTAL/2.0            # = π
+
+# Simulation control (unchanged)
+OMEGA_MAX   = 0.6
 OMEGA_STEPS = 100_000
-TOLERANCE = 1e-7 # Tolerance for checking if eigenvalue magnitude is 1
+TOLERANCE   = 1e-7  # |λ|-1 tolerance for accepting a propagating mode
 
+# --- Transfer matrices (1:1 with MATLAB) ---
 def get_TA(omega, phi, L, delta, epsilon0):
     """
-    Calculates the transfer matrix for Layer A (non-magnetic dielectric).
-    The formula is from Appendix B of the paper.
+    Layer A transfer matrix (exact MATLAB formula).
     """
-    # Using np.sqrt on potentially negative numbers can lead to `nan`.
-    # We expect epsilon0 > delta for a physical system.
-
+    a  = omega * L
     n1 = np.sqrt(epsilon0 + delta)
     n2 = np.sqrt(epsilon0 - delta)
 
-    rho1 = np.cos(n1 * omega * L)
-    rho2 = np.cos(n2 * omega * L)
-    rho1_tilde = np.sin(n1 * omega * L)
-    rho2_tilde = np.sin(n2 * omega * L)
+    u1, v1 = np.cos(n1*a), np.sin(n1*a)
+    u2, v2 = np.cos(n2*a), np.sin(n2*a)
 
-    t = np.cos(phi)
-    t_tilde = np.sin(phi)
-    
-    # Pre-calculate squared terms for efficiency and readability
-    t2 = t**2
-    t_tilde2 = t_tilde**2
-    tt_tilde = t * t_tilde
+    u, v = np.cos(phi), np.sin(phi)
 
-    # Construct the matrix elements as defined in the paper's appendix
-    # The paper's appendix has a typo, the structure should be consistent.
-    # The implementation below is based on the standard form for such transfer matrices.
-    m11 = t2 * rho1 + t_tilde2 * rho2
-    m12 = tt_tilde * (rho1 - rho2)
-    m13 = (t2 * rho1_tilde) / n1 + (t_tilde2 * rho2_tilde) / n2
-    m14 = (tt_tilde * rho1_tilde) / n1 - (tt_tilde * rho2_tilde) / n2
-    
-    m21 = m12
-    m22 = t_tilde2 * rho1 + t2 * rho2
-    m23 = m14
-    m24 = (t_tilde2 * rho1_tilde) / n1 + (t2 * rho2_tilde) / n2
-
-    m31 = -n1 * t2 * rho1_tilde - n2 * t_tilde2 * rho2_tilde
-    m32 = -n1 * tt_tilde * rho1_tilde + n2 * tt_tilde * rho2_tilde
-    m33 = m11 # Corrected based on symmetry
-    m34 = m12 # Corrected based on symmetry
-
-    m41 = m32
-    m42 = -n1 * t_tilde2 * rho1_tilde - n2 * t2 * rho2_tilde
-    m43 = m34
-    m44 = m22 # Corrected based on symmetry
-
-    # The formulas in the appendix seem to have typos in the lower-left block (m33, m34, m43, m44).
-    # A correct transfer matrix for a reciprocal layer A should have a block structure like:
-    # [ A, B ]
-    # [ C, A ]
-    # where A, B, C are 2x2 matrices.
-    # The implementation above reflects the expected structure.
-    
-    TA = np.array([
-        [m11, m12, m13, m14],
-        [m21, m22, m23, m24],
-        [m31, m32, m33, m34],
-        [m41, m42, m43, m44]
+    T = np.array([
+        [   u*u*u1 + v*v*u2,            u*v*u1 - u*v*u2,           -1j*u*v*v1/n1 + 1j*u*v*v2/n2,   1j*u*u*v1/n1 + 1j*v*v*v2/n2 ],
+        [   u*v*u1 - u*v*u2,            v*v*u1 + u*u*u2,           -1j*v*v*v1/n1 - 1j*u*u*v2/n2,   1j*u*v*v1/n1 - 1j*u*v*v2/n2 ],
+        [ -1j*n1*u*v*v1 + 1j*n2*u*v*v2, -1j*n1*v*v*v1 - 1j*n2*u*u*v2,  v*v*u1 + u*u*u2,              -u*v*u1 + u*v*u2           ],
+        [  1j*n1*u*u*v1 + 1j*n2*v*v*v2,  1j*n1*u*v*v1 - 1j*n2*u*v*v2, -u*v*u1 + u*v*u2,               u*u*u1 + v*v*u2           ]
     ], dtype=np.complex128)
-    
-    return TA
+    return T
 
 def get_TF(omega, L_F, alpha, beta, epsilon0_tilde):
     """
-    Calculates the transfer matrix for Layer F (ferromagnetic).
-    The formula is from Appendix B of the paper.
+    Layer F transfer matrix (exact MATLAB formula, including the 1/2 factor).
     """
+    a  = omega * L_F
+    mu = 1.0
 
-    m1 = np.sqrt((epsilon0_tilde + alpha) * (1 + beta))
-    m2 = np.sqrt((epsilon0_tilde - alpha) * (1 - beta))
+    n1 = np.sqrt((epsilon0_tilde + alpha)*(mu + beta))
+    n2 = np.sqrt((epsilon0_tilde - alpha)*(mu - beta))
+    m1 = np.sqrt((epsilon0_tilde + alpha)/(mu + beta))
+    m2 = np.sqrt((epsilon0_tilde - alpha)/(mu - beta))
 
-    m1_tilde = np.sqrt((epsilon0_tilde + alpha) / (1 + beta))
-    m2_tilde = np.sqrt((epsilon0_tilde - alpha) / (1 - beta))
+    u1, v1 = np.cos(n1*a), np.sin(n1*a)
+    u2, v2 = np.cos(n2*a), np.sin(n2*a)
 
-    sigma1 = np.cos(m1 * omega * L_F)
-    sigma2 = np.cos(m2 * omega * L_F)
-    sigma1_tilde = np.sin(m1 * omega * L_F)
-    sigma2_tilde = np.sin(m2 * omega * L_F)
-    
-    # For clarity, calculate matrix elements separately
-    c1 = (sigma1 + sigma2) / 2.0
-    c2 = 1j * (sigma1 - sigma2) / 2.0
-    
-    s1 = (sigma1_tilde / m1_tilde + sigma2_tilde / m2_tilde) / 2.0
-    s2 = 1j * (sigma1_tilde / m1_tilde - sigma2_tilde / m2_tilde) / 2.0
-
-    s3 = -(m1_tilde * sigma1_tilde + m2_tilde * sigma2_tilde) / 2.0
-    s4 = -1j * (m1_tilde * sigma1_tilde - m2_tilde * sigma2_tilde) / 2.0
-
-    TF = np.array([
-        [c1, c2, s1, s2],
-        [-c2, c1, -s2, s1],
-        [s3, s4, c1, c2],
-        [-s4, s3, -c2, c1]
+    T = np.array([
+        [  u1+u2,               1j*(u1-u2),           v1/m1 - v2/m2,        1j*(v1/m1 + v2/m2) ],
+        [ -1j*(u1-u2),          u1+u2,               -1j*(v1/m1 + v2/m2),   v1/m1 - v2/m2      ],
+        [ -m1*v1 + m2*v2,      -1j*(m1*v1 + m2*v2),   u1+u2,                1j*(u1-u2)        ],
+        [  1j*(m1*v1 + m2*v2), -m1*v1 + m2*v2,       -1j*(u1-u2),           u1+u2             ]
     ], dtype=np.complex128)
-    
-    return TF
 
+    return 0.5 * T
+
+# --- Original sweep-ω, solve k from eigenvalues (unchanged) ---
 def calculate_band_structure():
     """
-    Main function to calculate and store the (k, omega) pairs.
+    Sweep real ω; for each ω, build M(ω)=T_A1*T_F*T_A2,
+    take its eigenvalues λ = e^{ik}, keep those with |λ|≈1,
+    and record (k, ω) with k = -i log λ (real part).
     """
     print("Starting calculation...")
     omega_vals = np.linspace(0, OMEGA_MAX, OMEGA_STEPS)
-    
+
     k_results = []
     omega_results = []
 
     for omega in omega_vals:
-        if omega == 0: continue # Avoid division by zero issues if any
+        if omega == 0:
+            continue  # unchanged
 
+        # Correct layer thicknesses (match MATLAB)
+        TA1 = get_TA(omega, PHI1, L_A, DELTA, EPSILON0)
+        TFm = get_TF(omega, L_F,  ALPHA, BETA, EPSILON0_TILDE)
+        TA2 = get_TA(omega, PHI2, L_A, DELTA, EPSILON0)
 
-        # The unit cell is A(phi1) -> F -> A(phi2)
-        # Thickness of F layer is (1 - 2*L)
-        L_F = 1.0 - 2.0 * L
+        # Correct multiplication order (match MATLAB: T_A1 * T_F * T_A2)
+        M = TA1 @ TFm @ TA2
 
-        TA1 = get_TA(omega, PHI1, np.pi, DELTA, EPSILON0)
-        TF = get_TF(omega, np.pi/2, ALPHA, BETA, EPSILON0_TILDE)
-        TA2 = get_TA(omega, PHI2, np.pi, DELTA, EPSILON0)
-
-        # The total transfer matrix M is the product in reverse order of propagation
-        M = TA2 @ TF @ TA1
-
-        # Find the eigenvalues of the transfer matrix M
         eigenvalues = np.linalg.eigvals(M)
-        
         for eig in eigenvalues:
-            # For a propagating wave in a Hermitian system, the magnitude of
-            # the eigenvalue lambda = exp(ik) must be 1.
             if np.isclose(np.abs(eig), 1.0, atol=TOLERANCE):
-                # k = -i * log(lambda)
                 k = -1j * np.log(eig)
-                
-                # Store the real part of k and the corresponding omega
                 k_results.append(k.real)
                 omega_results.append(omega)
 
@@ -159,25 +102,19 @@ def calculate_band_structure():
     return k_results, omega_results
 
 def plot_results(k_vals, omega_vals):
-    """
-    Plots the calculated band structure.
-    """
     plt.figure(figsize=(8, 6))
-    plt.scatter(k_vals, omega_vals, s=1, c='k', alpha=0.5) # s is marker size
-    
+    plt.scatter(k_vals, omega_vals, s=1, c='k', alpha=0.5)
     plt.xlabel('k (Bloch Wavenumber)')
     plt.ylabel('ω (Frequency)')
     plt.title('Photonic Crystal Band Structure (Hermitian Case)')
     plt.xlim(-np.pi, np.pi)
     plt.ylim(0, OMEGA_MAX)
-    
-    # Set x-axis ticks to be multiples of pi
     plt.xticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi],
                [r'$-\pi$', r'$-\pi/2$', '0', r'$\pi/2$', r'$\pi$'])
-    
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.show()
 
 if __name__ == '__main__':
     k_points, omega_points = calculate_band_structure()
     plot_results(k_points, omega_points)
+
