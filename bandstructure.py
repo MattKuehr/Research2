@@ -106,7 +106,7 @@ def calculate_band_structure():
 
 def dispersion_function(omega_vec, q, params):
     """
-    Dispersion relation: det(M(ω) - e^(iq)·I) = 0
+    Dispersion relation: det(M(ω) - e^(iq·L)·I) = 0
     """
     omega = omega_vec[0] + 1j * omega_vec[1]
     
@@ -118,7 +118,10 @@ def dispersion_function(omega_vec, q, params):
                  params['DELTA'], params['EPSILON0'])
     
     M = TA1 @ TF @ TA2
-    f = np.linalg.det(M - np.exp(1j * q) * np.eye(4))
+    
+    # CRITICAL FIX: Include L (total unit cell length)
+    L = params['L_A'] * 2 + params['L_F']  # L_A1 + L_A2 + L_F = 2*L_A + L_F
+    f = np.linalg.det(M - np.exp(1j * q * L) * np.eye(4))
     
     return [f.real, f.imag]
 
