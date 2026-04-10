@@ -1,11 +1,12 @@
 import matplotlib.pyplot as plt
-from config import get_config
+#from config import get_config
 import numpy as np
 from typing import Optional
 
 
-config = get_config()
-OMEGA_MAX = config['OMEGA_MAX']
+# config = get_config()
+# OMEGA_MAX = config['OMEGA_MAX']
+OMEGA_MAX = 0.6
 
 
 # Plot results (Hermitian Case)

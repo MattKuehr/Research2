@@ -6,6 +6,6 @@ def get_config():
         "L_A": 2*np.pi / 4.0,
         "L_F": 2*np.pi / 2.0,
         "OMEGA_MAX": 0.6,
-        "OMEGA_STEPS": 100_000,
+        "OMEGA_STEPS": 10_000, # was 100_000
         "TOLERANCE": 1e-6      
     }
