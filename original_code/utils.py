@@ -2,6 +2,7 @@ from typing import List
 import numpy as np
 import os
 
+
 def get_points_array(path: str, hermitian: bool = True):
     if hermitian:
         if os.path.exists(path):
@@ -26,6 +27,7 @@ def get_points_array(path: str, hermitian: bool = True):
         pass
     
     return points
+
 
 def project_line(points: np.ndarray, x_coord: float = -np.pi / 4, n_steps: int = 10_000, verbose: bool = False):
     test_line = np.linspace(0.0, 0.6, n_steps)
@@ -53,6 +55,7 @@ def project_line(points: np.ndarray, x_coord: float = -np.pi / 4, n_steps: int =
             new_position = test_point[1] + 5e-3
     
     return point_clusters
+
 
 def perturb_up(points, indices: np.ndarray, diff: np.ndarray, eps: float = 1e-6, verbose: bool = False) -> np.ndarray:
     points_in_radius = diff[indices]
